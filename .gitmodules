@@ -1,6 +1,3 @@
-[submodule "crowdsourcing"]
-	path = crowdsourcing
-	url = https://github.com/hughdickinson/crowdsourcing.git
 [submodule "caesar_external"]
 	path = caesar_external
 	url = https://github.com/miclaraia/caesar_external.git
