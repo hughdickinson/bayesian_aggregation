@@ -79,12 +79,11 @@ setup(
     # requirements files see:
     # https://packaging.python.org/en/latest/requirements.html
     install_requires=[
-        'panoptes_client',
-        'click',
         'pandas',
         'numpy',
         'boto3',
-        'matplotlib'
+        'matplotlib',
+        'caesar_external @ https://api.github.com/repos/miclaraia/caesar_external/tarball'
     ],
 
     # List additional groups of dependencies here (e.g. development
@@ -116,5 +115,6 @@ setup(
     #         'caesar=caesar_external.__main__:main',
     #     ],
     # },
+
     zip_safe=False
 )

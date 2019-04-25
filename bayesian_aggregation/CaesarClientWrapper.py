@@ -1,7 +1,7 @@
 import os
 
-import caesar_external.data as cedata
-import caesar_external.utils as ceutils
+from caesar_external import data as cedata
+from caesar_external import utils as ceutils
 
 
 class CaesarClientWrapper:
@@ -15,6 +15,7 @@ class CaesarClientWrapper:
             "workflow": workflowId,
             "sqs_queue": sqsQueue,
             "staging_mode": isStagingMode,
+            "last_id":-1
         }
 
         if authMode == "api_key":
