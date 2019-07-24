@@ -3,13 +3,13 @@ import boto3
 import json
 
 
-class UniqueMessage(object):
+class UniqueMessage:
     def __init__(self, message):
         self.classification_id = int(message["classification_id"])
         self.message = message
 
     def __eq__(self, other):
-        return self.classification_id == other(self.classification_id)
+        return self.classification_id == other.classification_id
 
     def __hash__(self):
         return hash(self.classification_id)
@@ -19,8 +19,9 @@ class SQSClient:
     def __init__(self, queueUrl):
         self.sqs = boto3.client("sqs")
         self.queueUrl = queueUrl
+        self.subscribers = []
 
-    def getMessages(self):
+    def getMessages(self, delete=True):
         response = self.sqs.receive_message(
             QueueUrl=self.queueUrl,
             AttributeNames=["SentTimestamp", "MessageDeduplicationId"],
@@ -49,11 +50,15 @@ class SQSClient:
                 if messageBodyMd5 == message["MD5OfBody"]:
                     receivedMessages.append(json.loads(messageBody))
                     receivedMessageIds.append(receivedMessages[-1]["classification_id"])
-                    uniqueMessages.add(UniqueMessage(receivedMessages[-1]))
-                    # the message has been retrieved successfully - delete it.
-                    self.sqs.delete_message(
-                        QueueUrl=self.queueUrl, ReceiptHandle=message["ReceiptHandle"]
-                    )
+                    uniqueMessage = UniqueMessage(receivedMessages[-1])
+
+                    uniqueMessages.add(uniqueMessage)
+
+                    if delete:
+                        self.sqs.delete_message(
+                            QueueUrl=self.queueUrl,
+                            ReceiptHandle=message["ReceiptHandle"],
+                        )
                 else:
                     print("MD5 mismatch!")
 
@@ -74,3 +79,6 @@ class SQSClient:
         print(
             'SQSClient posted {} messages to "{}""'.format(len(messages), self.queueUrl)
         )
+
+    def deduplicate(self, messageList):
+        return [um.message for um in set([UniqueMessage(message) for message in messageList])]

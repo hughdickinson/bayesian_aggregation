@@ -9,7 +9,13 @@ import numpy as np
 
 class BBoxResultsPlotter:
     def __init__(
-        self, aggregatedDataPath, imageMetaDataPath, inputAnnotations, imageDir="."
+        self,
+        aggregatedDataPath,
+        imageMetaDataPath,
+        inputAnnotations,
+        imageDir=".",
+        imagePathColumn='image_path',
+        imagePathSuffix=".png",
     ):
         """
         Args:
@@ -21,12 +27,18 @@ class BBoxResultsPlotter:
         inputAnnotations - A list containing the input annotations provided to
         the aggregator.
         imageDir - Path to directory containing the annotated images.
+        imagePathColumn - The name of the column in the metadata DataFrame containing
+        the subject image paths relative to `imageDir`.
+        imagePathSuffix - Suffix to append to the values in `imagePathColumn` to form
+        a valid image file name (default: '.png')
         """
         with open(aggregatedDataPath) as aggregatedDataFile:
             self.aggregatedData = json.load(aggregatedDataFile)
         self.imageMetaData = pd.read_pickle(imageMetaDataPath)
         # self.inputData = inputData
         self.imageDir = imageDir
+        self.imagePathColumn = imagePathColumn
+        self.imagePathSuffix = imagePathSuffix
         self.risks = None
         self.imageDimensions = None
         self.completionStates = None
@@ -96,14 +108,21 @@ class BBoxResultsPlotter:
             for bbox in label["label"]["bboxes"]
         ]
 
-    def plotExamples(self, numExamples, gridWidth=3, showLegend=False, selector=None):
+    def plotExamples(
+        self,
+        numExamples,
+        gridWidth=3,
+        showLegend=False,
+        selector=None,
+        invertColours=False,
+    ):
         unifiedFigureShape = np.array([gridWidth, numExamples // gridWidth])
         unifiedFigurePadSize = 6
 
         unifiedFigure, unifiedPanels = mplplot.subplots(
             figsize=unifiedFigureShape * unifiedFigurePadSize,
-            ncols=unifiedFigureShape[1],
-            nrows=unifiedFigureShape[0],
+            ncols=unifiedFigureShape[0],
+            nrows=unifiedFigureShape[1],
         )
 
         if showLegend:
@@ -128,12 +147,13 @@ class BBoxResultsPlotter:
             )
         ]
 
-        for unifiedPanel, (imageIndex, groundTruth) in itertools.zip_longest(
+        for unifiedPanel, (imageIndex, groundTruth) in zip(
             unifiedPanels.flatten()[panelSlice],
             selectedImageMetaData.groupby(by="image_id"),
         ):
 
-            subjectId = np.asscalar(groundTruth.subject_id.unique())
+            groundTruth = groundTruth.sort_values(by="subject_id").head(1)
+            subjectId = np.asscalar(groundTruth.subject_id)
 
             imageAnnotations = [
                 annotation
@@ -141,8 +161,11 @@ class BBoxResultsPlotter:
                 if int(annotation["image_id"]) == subjectId
             ]
 
-            if "image_path" in groundTruth.columns:
-                imagePath = groundTruth.image_path
+            if self.imagePathColumn in groundTruth.columns:
+                imagePath = str(groundTruth[self.imagePathColumn].values[0])
+                if self.imagePathSuffix is not None:
+                    imagePath += self.imagePathSuffix
+                #                 print(type(imagePath), imagePath)
                 if not os.path.isabs(imagePath):
                     imagePath = os.path.join(self.imageDir, imagePath)
             else:
@@ -150,7 +173,12 @@ class BBoxResultsPlotter:
                     self.imageDir, "subject_{}.png".format(imageIndex)
                 )
 
-            unifiedPanel.imshow(mplplot.imread(imagePath), origin="lower", zorder=0)
+            imageData = mplplot.imread(imagePath)
+            if invertColours:
+                imageData[..., :-1] = (
+                    np.ones_like(imageData[..., :-1]) - imageData[..., :-1]
+                )
+            unifiedPanel.imshow(imageData, origin="lower", zorder=0)
 
             for imageAnnotation in imageAnnotations:
                 unifiedPanel.add_patch(
@@ -170,7 +198,7 @@ class BBoxResultsPlotter:
             uniqueWorkerIds = np.unique(
                 np.concatenate(
                     [
-                        [int(key) for key in imageAnnos.keys()]
+                        [int(np.nan_to_num(float(key))) for key in imageAnnos.keys()]
                         for imageAnnos in self.inputAnnotationDict.values()
                     ]
                 )
@@ -179,7 +207,9 @@ class BBoxResultsPlotter:
                 str(subjectId)
             ].items():
                 workerIndex = np.asscalar(
-                    np.flatnonzero(uniqueWorkerIds == int(workerId))
+                    np.flatnonzero(
+                        uniqueWorkerIds == int(np.nan_to_num(float((workerId))))
+                    )
                 )
                 for bbox in workerAnnotations[0]["anno"]["bboxes"]:
                     unifiedPanel.add_patch(
@@ -197,6 +227,18 @@ class BBoxResultsPlotter:
                         )
                     )
 
+            unifiedPanel.text(
+                0.95,
+                0.95,
+                "$|\mathcal{{W}}|$ = {}".format(
+                    len(self.inputAnnotationDict[str(subjectId)])
+                ),
+                horizontalalignment="right",
+                verticalalignment="top",
+                fontdict=dict(color="k" if invertColours else "w", fontsize="x-large"),
+                transform=unifiedPanel.transAxes,
+            )
+
             if self.completionStates[subjectId]:
                 unifiedPanel.text(
                     0.05,
@@ -204,7 +246,21 @@ class BBoxResultsPlotter:
                     "COMPLETE",
                     horizontalalignment="left",
                     verticalalignment="top",
-                    fontdict=dict(color="r", fontsize="x-large"),
+                    fontdict=dict(
+                        color="k" if invertColours else "w", fontsize="x-large"
+                    ),
+                    transform=unifiedPanel.transAxes,
+                )
+            else:
+                unifiedPanel.text(
+                    0.05,
+                    0.95,
+                    "INCOMPLETE",
+                    horizontalalignment="left",
+                    verticalalignment="top",
+                    fontdict=dict(
+                        color="k" if invertColours else "w", fontsize="x-large"
+                    ),
                     transform=unifiedPanel.transAxes,
                 )
 
@@ -236,7 +292,7 @@ class BBoxResultsPlotter:
         mplplot.tight_layout()
         return unifiedFigure, unifiedPanels
 
-    def plotRisks(self, threshold=None, logAxes = False):
+    def plotRisks(self, threshold=None, logAxes=False):
         riskAxes = mplplot.figure(figsize=(6, 6)).add_subplot(1, 1, 1)
         riskData = np.fromiter(self.risks.values(), dtype=np.float64)
 
@@ -283,7 +339,6 @@ class BBoxResultsPlotter:
             )
 
         riskAxes.set_xlabel("Risk")
-        riskAxes.set_xscale("log")
         riskAxes.set_ylabel("Subject Count")
         if logAxes:
             riskAxes.set_xscale("log")

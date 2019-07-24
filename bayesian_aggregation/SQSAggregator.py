@@ -22,31 +22,65 @@ class SQSAggregator:
         savePath=".",
         savePrefix="aggregator_output",
         saveInputAnnotations=False,
+        saveInputMessages=False,
         purgeOldBBoxSetFile=False,
         **kwargs
     ):
-        self.sqsClient = SQSClient(queueUrl=queueUrl)
-        self.sqsMessageParser = SQSMessageParser(**kwargs)
+
         self.savePath = savePath
         self.savePrefix = savePrefix
-        self.fullSavePrefix = os.path.join(self.savePath, self.savePrefix)
+
+        self.sqsClient = SQSClient(queueUrl=queueUrl)
+
         self.saveInputAnnotations = saveInputAnnotations
+        self.saveInputMessages = saveInputMessages
 
         self.maxRisk = maxRisk
-        self.aggregator = CrowdDatasetBBox(
-            debug=0,
-            learn_worker_params=True,
-            learn_image_params=True,
-            estimate_priors_automatically=True,
-            computer_vision_predictor=None,
-            naive_computer_vision=False,
-            min_risk=self.maxRisk,
-        )
-        self.aggregator.fname = self.fullSavePrefix
 
         self.messageBatchSize = messageBatchSize
+
+        # Support aggregation for multiple tasks using sub-aggregators
+        self.sqsMessageParsers = []
+        self.subAggregators = []
+        self.fullSavePrefixes = []
+        self.taskLabels = kwargs.get("taskLabels", ["T0"])
+        try:
+            for taskCounter, taskLabel in enumerate(self.taskLabels):
+                self.sqsMessageParsers.append(
+                    SQSMessageParser(taskLabel=taskLabel, **kwargs)
+                )
+                self.subAggregators.append(
+                    CrowdDatasetBBox(
+                        debug=0,
+                        learn_worker_params=True,
+                        learn_image_params=True,
+                        estimate_priors_automatically=True,
+                        computer_vision_predictor=None,
+                        naive_computer_vision=False,
+                        min_risk=self.maxRisk,
+                    )
+                )
+                self.fullSavePrefixes.append(
+                    os.path.join(
+                        self.savePath, "{}_T{}".format(self.savePrefix, taskCounter)
+                    )
+                )
+                self.subAggregators[-1].fname = self.fullSavePrefixes[-1]
+
+        except TypeError as e:
+            print(
+                "The 'taskLabels' argument must be an iterable containing task label strings e.g. ['T0', 'T1']"
+            )
+            raise
+
         self.allUniqueMessages = []
-        self.inputAnnotations = [] if self.saveInputAnnotations else None
+        self.inputAnnotations = (
+            {taskLabel: [] for taskLabel in self.taskLabels}
+            if self.saveInputAnnotations
+            else None
+        )
+        self.inputMessages = [] if self.saveInputMessages else None
+        self.deleteMessagesFromQueue = kwargs.get("deleteMessagesFromQueue", True)
 
         self.verbose = kwargs.get("verbose", False)
 
@@ -57,16 +91,21 @@ class SQSAggregator:
             self.purgeBBoxSetFile()
 
     def purgeBBoxSetFile(self):
-        bboxSetFilePath = self.fullSavePrefix + ".big_bbox_set.pkl"
-        if os.path.exists(bboxSetFilePath):
-            os.remove(bboxSetFilePath)
+        for fullSavePrefix in self.fullSavePrefixes:
+            bboxSetFilePath = fullSavePrefix + ".big_bbox_set.pkl"
+            if os.path.exists(bboxSetFilePath):
+                os.remove(bboxSetFilePath)
 
     def accumulateMessages(self):
         while len(self.allUniqueMessages) < self.messageBatchSize:
-            uniqueMessages, allMessages, messageIds = self.sqsClient.getMessages()
+            uniqueMessages, allMessages, messageIds = self.sqsClient.getMessages(
+                self.deleteMessagesFromQueue
+            )
             if not len(uniqueMessages):
                 return False
             self.allUniqueMessages.extend(uniqueMessages)
+
+        self.allUniqueMessages = self.sqsClient.deduplicate(self.allUniqueMessages)
 
         return True
 
@@ -74,46 +113,61 @@ class SQSAggregator:
         if not self.accumulateMessages() and len(self.allUniqueMessages) == 0:
             # If no messages are available for processing
             return False
+        else:
+            print("Aggregator: Accumulated", len(self.allUniqueMessages), " messages.")
 
-        self.sqsMessageParser.processMessages(self.allUniqueMessages)
+        for taskLabel, aggregator, sqsMessageParser in zip(
+            self.taskLabels, self.subAggregators, self.sqsMessageParsers
+        ):
+            if not sqsMessageParser.processMessages(self.allUniqueMessages):
+                return False
 
-        if self.saveInputAnnotations:
-            self.inputAnnotations.extend(
-                self.sqsMessageParser.aggregatorInputData["annos"]
+            if self.saveInputAnnotations:
+                self.inputAnnotations[taskLabel].extend(
+                    sqsMessageParser.aggregatorInputData["annos"]
+                )
+
+            aggregator.load(
+                data=sqsMessageParser.getAggregatorInputData(), overwrite_workers=False
+            )
+            aggregator.get_big_bbox_set()
+            aggregator.estimate_parameters(
+                avoid_if_finished=True, max_iters=10, refine=True
             )
 
-        self.aggregator.load(
-            data=self.sqsMessageParser.getAggregatorInputData(), overwrite_workers=False
-        )
-        self.aggregator.get_big_bbox_set()
-        self.aggregator.estimate_parameters(
-            avoid_if_finished=True, max_iters=10, refine=True
-        )
+        if self.saveInputMessages:
+            self.inputMessages.extend(self.allUniqueMessages)
         self.allUniqueMessages = []
         return True
 
     def checkNumFinished(self):
-        image_id_to_finished = self.aggregator.check_finished_annotations(
-            set_finished=True
-        )
-        num_finished = sum(image_id_to_finished.values())
-        print(
-            "{:d} / ({:d}) ({:.2f}%) images are finished".format(
-                num_finished,
-                len(image_id_to_finished),
-                100.0 * float(num_finished) / len(image_id_to_finished),
+        for taskLabel, aggregator in zip(self.taskLabels, self.subAggregators):
+            image_id_to_finished = aggregator.check_finished_annotations(
+                set_finished=True
             )
-        )
+            num_finished = sum(image_id_to_finished.values())
+            if len(image_id_to_finished) > 0:
+                print(
+                    "Task {}: {:d} / ({:d}) ({:.2f}%) images are finished".format(
+                        taskLabel,
+                        num_finished,
+                        len(image_id_to_finished),
+                        100.0 * float(num_finished) / len(image_id_to_finished),
+                    ),
+                )
 
     def save(self):
-        self.aggregator.save(
-            self.fullSavePrefix + "_aggregated.json",
-            save_dataset=True,
-            save_images=True,
-            save_workers=True,
-            save_annos=True,
-            save_combined_labels=True,
-        )
+        for aggregator, fullSavePrefix in zip(
+            self.subAggregators, self.fullSavePrefixes
+        ):
+            aggregator.save(
+                fullSavePrefix + "_aggregated.json",
+                save_dataset=True,
+                save_images=True,
+                save_workers=True,
+                save_annos=True,
+                save_combined_labels=True,
+            )
 
     def getInputAnnotations(self):
         return self.inputAnnotations
@@ -141,9 +195,9 @@ class SQSAggregator:
                 if verbose:
                     self.checkNumFinished()
             elif not stopOnExhaustion:
-                print("No messages recieved. Waiting...")
+                print("No messages received. Waiting...")
                 continue
             else:
-                print("No messages recieved. Stopping.")
+                print("No messages received. Stopping.")
                 self.checkNumFinished()
                 break
