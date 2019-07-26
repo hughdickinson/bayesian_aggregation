@@ -77,20 +77,20 @@ class BBoxResultsPlotter:
         }
 
     def extractSkillSigmas(self):
-        self.workerSigmas = {
-            int(float(workerId)): worker["sigma"]
+        self.skillSigmas = {
+            int(np.nan_to_num(float(workerId))): worker["sigma"]
             for workerId, worker in self.aggregatedData["workers"].items()
         }
 
     def extractSkillFalsePosProbs(self):
-        self.workerSigmas = {
-            int(float(workerId)): worker["prob_fp"]
+        self.skillFalsePosProbs = {
+            int(np.nan_to_num(float(workerId))): worker["prob_fp"]
             for workerId, worker in self.aggregatedData["workers"].items()
         }
 
     def extractSkillFalseNegProbs(self):
-        self.workerSigmas = {
-            int(float(workerId)): worker["prob_fn"]
+        self.skillFalseNegProbs = {
+            int(np.nan_to_num(float(workerId))): worker["prob_fn"]
             for workerId, worker in self.aggregatedData["workers"].items()
         }
 

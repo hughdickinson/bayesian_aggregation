@@ -24,6 +24,7 @@ class SQSAggregator:
         saveInputAnnotations=False,
         saveInputMessages=False,
         purgeOldBBoxSetFile=False,
+        postIterateCallback=None,
         **kwargs
     ):
 
@@ -38,6 +39,7 @@ class SQSAggregator:
         self.maxRisk = maxRisk
 
         self.messageBatchSize = messageBatchSize
+        self.postIterateCallback = postIterateCallback
 
         # Support aggregation for multiple tasks using sub-aggregators
         self.sqsMessageParsers = []
@@ -202,6 +204,20 @@ class SQSAggregator:
             if self.aggregate():
                 if verbose:
                     self.checkNumFinished()
+                    if self.postIterateCallback is not None:
+                        self.postIterateCallback(
+                            {
+                                taskLabel: {
+                                    "data": subAgg.save(fname=None),
+                                    "finished_id_map": subAgg.check_finished_annotations(
+                                        set_finished=True
+                                    ),
+                                }
+                                for taskLabel, subAgg in zip(
+                                    self.taskLabels, self.subAggregators
+                                )
+                            }
+                        )
             elif not stopOnExhaustion:
                 print("No messages received. Waiting...")
                 continue

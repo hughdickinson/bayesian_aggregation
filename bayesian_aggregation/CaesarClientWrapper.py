@@ -15,7 +15,7 @@ class CaesarClientWrapper:
             "workflow": workflowId,
             "sqs_queue": sqsQueue,
             "staging_mode": isStagingMode,
-            "last_id":-1
+            "last_id": -1,
         }
 
         if authMode == "api_key":
