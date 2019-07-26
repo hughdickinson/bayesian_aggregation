@@ -16,10 +16,17 @@ class UniqueMessage:
 
 
 class SQSClient:
-    def __init__(self, queueUrl):
+    def __init__(self, queueUrl, **kwargs):
         self.sqs = boto3.client("sqs")
         self.queueUrl = queueUrl
         self.subscribers = []
+        if kwargs.get("verbose", False):
+            print(
+                "SQS Queue Attributes",
+                self.sqs.get_queue_attributes(
+                    QueueUrl=self.queueUrl, AttributeNames=["All"]
+                ),
+            )
 
     def getMessages(self, delete=True):
         response = self.sqs.receive_message(
@@ -81,4 +88,7 @@ class SQSClient:
         )
 
     def deduplicate(self, messageList):
-        return [um.message for um in set([UniqueMessage(message) for message in messageList])]
+        return [
+            um.message
+            for um in set([UniqueMessage(message) for message in messageList])
+        ]

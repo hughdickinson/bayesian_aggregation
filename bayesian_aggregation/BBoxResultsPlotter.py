@@ -14,7 +14,7 @@ class BBoxResultsPlotter:
         imageMetaDataPath,
         inputAnnotations,
         imageDir=".",
-        imagePathColumn='image_path',
+        imagePathColumn="image_path",
         imagePathSuffix=".png",
     ):
         """
@@ -74,6 +74,30 @@ class BBoxResultsPlotter:
         self.risks = {
             int(imageId): image["risk"]
             for imageId, image in self.aggregatedData["images"].items()
+        }
+
+    def extractSkillSigmas(self):
+        self.workerSigmas = {
+            int(float(workerId)): worker["sigma"]
+            for workerId, worker in self.aggregatedData["workers"].items()
+        }
+
+    def extractSkillFalsePosProbs(self):
+        self.workerSigmas = {
+            int(float(workerId)): worker["prob_fp"]
+            for workerId, worker in self.aggregatedData["workers"].items()
+        }
+
+    def extractSkillFalseNegProbs(self):
+        self.workerSigmas = {
+            int(float(workerId)): worker["prob_fn"]
+            for workerId, worker in self.aggregatedData["workers"].items()
+        }
+
+    def extractSubjectClassificationCounts(self):
+        self.subjectClassificationCounts = {
+            int(subjectId): len(subjectAnnotations)
+            for subjectId, subjectAnnotations in self.inputAnnotationDict.items()
         }
 
     def extractCompletionStates(self):
@@ -146,6 +170,9 @@ class BBoxResultsPlotter:
                 lambda imageId: imageId in selectedImageIds
             )
         ]
+
+        allLabels = []
+        allHandles = []
 
         for unifiedPanel, (imageIndex, groundTruth) in zip(
             unifiedPanels.flatten()[panelSlice],
@@ -273,17 +300,21 @@ class BBoxResultsPlotter:
             unifiedPanel.set_xlim(0, self.imageDimensions[subjectId][0])
             unifiedPanel.set_ylim(0, self.imageDimensions[subjectId][0])
 
-        handles, labels = unifiedPanel.get_legend_handles_labels()
+            handles, labels = unifiedPanel.get_legend_handles_labels()
+            allHandles.extend(handles)
+            allLabels.extend(labels)
 
-        uniqueLabels = np.unique(labels)
-        uniqueLabelIndices = [labels.index(uniqueLabel) for uniqueLabel in uniqueLabels]
+        uniqueLabels = np.unique(allLabels)
+        uniqueLabelIndices = [
+            allLabels.index(uniqueLabel) for uniqueLabel in uniqueLabels
+        ]
 
         if showLegend:
             legendAxes = unifiedPanels.flatten()[-1]
             legendAxes.axis("off")
             legendAxes.legend(
-                np.array(handles)[uniqueLabelIndices],
-                np.array(labels)[uniqueLabelIndices],
+                np.array(allHandles)[uniqueLabelIndices],
+                np.array(allLabels)[uniqueLabelIndices],
                 loc="center",
                 fontsize="x-large",
                 title="Workers",

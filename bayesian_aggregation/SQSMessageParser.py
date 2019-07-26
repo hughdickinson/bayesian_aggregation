@@ -149,6 +149,7 @@ class SQSMessageParser:
         return classificationsFrame.drop_duplicates(subset="id")
 
     def processClassifications(self, classificationsFrame):
+        print("Unique subject count", classificationsFrame.subject_id.unique().size)
         classificationsFrame["annotation_counts"] = classificationsFrame.loc[
             :, "annotations"
         ].apply(len)
@@ -171,7 +172,6 @@ class SQSMessageParser:
             lambda x: [(mark["x"], mark["y"]) for mark in x[self.taskLabel][0]["value"]]
         )
 
-        # print(markedClassificationsFrame)
         markedClassificationsFrame[
             "image_dimensions"
         ] = markedClassificationsFrame.metadata.apply(self.extractSubjectDimensions)

@@ -30,7 +30,7 @@ class SQSAggregator:
         self.savePath = savePath
         self.savePrefix = savePrefix
 
-        self.sqsClient = SQSClient(queueUrl=queueUrl)
+        self.sqsClient = SQSClient(queueUrl=queueUrl, **kwargs)
 
         self.saveInputAnnotations = saveInputAnnotations
         self.saveInputMessages = saveInputMessages
@@ -102,6 +102,9 @@ class SQSAggregator:
                 self.deleteMessagesFromQueue
             )
             if not len(uniqueMessages):
+                print(
+                    "Aggregator: accumulateMessages: No messages extracted from queue. Accumulation stops"
+                )
                 return False
             self.allUniqueMessages.extend(uniqueMessages)
 
@@ -114,7 +117,11 @@ class SQSAggregator:
             # If no messages are available for processing
             return False
         else:
-            print("Aggregator: Accumulated", len(self.allUniqueMessages), " messages.")
+            print(
+                "Aggregator: aggregate: Accumulated",
+                len(self.allUniqueMessages),
+                " messages.",
+            )
 
         for taskLabel, aggregator, sqsMessageParser in zip(
             self.taskLabels, self.subAggregators, self.sqsMessageParsers
@@ -153,7 +160,7 @@ class SQSAggregator:
                         num_finished,
                         len(image_id_to_finished),
                         100.0 * float(num_finished) / len(image_id_to_finished),
-                    ),
+                    )
                 )
 
     def save(self):
@@ -190,6 +197,7 @@ class SQSAggregator:
                 print("Unrecognized response.")
 
     def loop(self, verbose=True, stopOnExhaustion=False):
+        retries = 0
         while True:
             if self.aggregate():
                 if verbose:
@@ -197,7 +205,15 @@ class SQSAggregator:
             elif not stopOnExhaustion:
                 print("No messages received. Waiting...")
                 continue
+            elif retries < 3:
+                print(
+                    "No messages received after {} retries. Retrying...".format(retries)
+                )
+                retries += 1
+                self.checkNumFinished()
             else:
-                print("No messages received. Stopping.")
+                print(
+                    "No messages received after {} retries. Stopping.".format(retries)
+                )
                 self.checkNumFinished()
                 break
