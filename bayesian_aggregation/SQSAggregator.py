@@ -178,6 +178,11 @@ class SQSAggregator:
                 save_combined_labels=True,
             )
 
+        if self.saveInputMessages:
+            inputMessageFileName = "{}_inputMessages.pkl".format(self.savePrefix)
+            with open(inputMessageFileName, mode="wb") as inputMessageFile:
+                pickle.dump(obj=self.inputMessages, file=inputMessageFile)
+
     def getInputAnnotations(self):
         return self.inputAnnotations
 
