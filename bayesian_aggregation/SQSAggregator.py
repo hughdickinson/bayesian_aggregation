@@ -5,6 +5,7 @@ import importlib
 import signal
 import sys
 import os
+import pickle
 
 if importlib.util.find_spec("crowdsourcing") is not None:
     from crowdsourcing.annotations.detection.bbox import CrowdDatasetBBox

@@ -54,26 +54,31 @@ class SQSMessageParser:
             return None
 
     def extractBoxWidths(self, subject):
-        if self.markWidth is not None:
-            return self.markWidth
         try:
-            return subject["metadata"][self.widthMetaDatumName]
+            if self.markWidth is not None:
+                return float(self.markWidth)
+            return float(subject["metadata"][self.widthMetaDatumName])
         except KeyError as e:
             print(
-                "KeyError. Could not find {}. Using default box size ({} pixels)".format(
+                "SQSMessageParser.extractBoxWidths: KeyError. Could not find {}. Using default box size ({} pixels)".format(
                     self.widthMetaDatumName, SQSMessageParser.defaultMarkWidth
-                ),
-                subject["metadata"],
+                )
             )
+            return SQSMessageParser.defaultMarkWidth
+        except TypeError as e:
+            print("SQSMessageParser.extractBoxWidths: TypeError")
             return SQSMessageParser.defaultMarkWidth
 
     def extractBoxHeights(self, subject):
-        if self.markWidth is not None:
-            return self.markHeight
         try:
-            return subject["metadata"][self.heightMetaDatumName]
+            if self.markWidth is not None:
+                return float(self.markHeight)
+            return float(subject["metadata"][self.heightMetaDatumName])
         except KeyError as e:
-            print("KeyError", e)
+            print("SQSMessageParser.extractBoxHeights: KeyError", e)
+            return SQSMessageParser.defaultMarkHeight
+        except TypeError as e:
+            print("SQSMessageParser.extractBoxHeights: TypeError", e)
             return SQSMessageParser.defaultMarkHeight
 
     def imageDimsToTuple(self, imageDims):
@@ -212,6 +217,7 @@ class SQSMessageParser:
                 subset="subject_id"
             ).iterrows()
         }
+
         annos = [
             {
                 "anno": {
