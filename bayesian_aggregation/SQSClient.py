@@ -1,7 +1,8 @@
 import hashlib
 import boto3
 import json
-
+import pickle
+import numpy as np
 
 class UniqueMessage:
     def __init__(self, message):
@@ -92,3 +93,35 @@ class SQSClient:
             um.message
             for um in set([UniqueMessage(message) for message in messageList])
         ]
+
+class SQSOfflineClient:
+    """
+    Added by VM to facilitate parsing offline using downloaded datadump
+    """
+    def __init__(self, filename, **kwargs):
+
+        self.messagesFilename = filename
+
+        with open(self.messagesFilename,'rb') as pklfile:
+            self.messageDicts = pickle.load(pklfile)
+
+        self.messageIds = np.arange(len(self.messageDicts))
+        self.parsedCount = 0
+
+    def getMessages(self, delete=None):
+
+        if self.parsedCount < len(self.messageDicts):
+
+            batchSize = np.random.randint(25,50)
+            batchIds = self.messageIds[self.parsedCount:self.parsedCount+batchSize]
+
+            messages = [self.messageDicts[i] for i in batchIds]
+            receivedMessages = messages
+            receivedMessageIds = [m["classification_id"] for m in messages]
+
+            self.parsedCount += batchSize
+            return messages, receivedMessages, receivedMessageIds
+
+        else:
+
+            return [], [], []

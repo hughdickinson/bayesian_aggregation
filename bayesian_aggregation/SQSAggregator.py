@@ -1,4 +1,4 @@
-from .SQSClient import SQSClient
+from .SQSClient import SQSClient, SQSOfflineClient
 from .SQSMessageParser import SQSMessageParser
 
 import importlib
@@ -26,13 +26,21 @@ class SQSAggregator:
         saveInputMessages=False,
         purgeOldBBoxSetFile=False,
         postIterateCallback=None,
+        offlineMode=False,
+        offlineMessageDump=None,
         **kwargs
     ):
 
         self.savePath = savePath
         self.savePrefix = savePrefix
 
-        self.sqsClient = SQSClient(queueUrl=queueUrl, **kwargs)
+        self.offlineMode = offlineMode
+        self.offlineMessageDump = offlineMessageDump
+
+        if self.offlineMode:
+            self.sqsClient = SQSOfflineClient(filename=self.offlineMessageDump)
+        else:
+            self.sqsClient = SQSClient(queueUrl=queueUrl, **kwargs)
 
         self.saveInputAnnotations = saveInputAnnotations
         self.saveInputMessages = saveInputMessages
@@ -111,7 +119,8 @@ class SQSAggregator:
                 return False
             self.allUniqueMessages.extend(uniqueMessages)
 
-        self.allUniqueMessages = self.sqsClient.deduplicate(self.allUniqueMessages)
+        if not self.offlineMode:
+            self.allUniqueMessages = self.sqsClient.deduplicate(self.allUniqueMessages)
 
         return True
 
