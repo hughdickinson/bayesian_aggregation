@@ -1,0 +1,3 @@
+[submodule "crowdsourcing"]
+	path = crowdsourcing
+	url = git@github.com:vihangmehta/crowdsourcing.git
