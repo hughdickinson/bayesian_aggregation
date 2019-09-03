@@ -108,11 +108,11 @@ class SQSOfflineClient:
         self.messageIds = np.arange(len(self.messageDicts))
         self.parsedCount = 0
 
-    def getMessages(self, delete=None):
+    def getMessages(self, batchSize=None, delete=None):
 
         if self.parsedCount < len(self.messageDicts):
 
-            batchSize = np.random.randint(25,50)
+            if batchSize is None: batchSize = np.random.randint(40,60)
             batchIds = self.messageIds[self.parsedCount:self.parsedCount+batchSize]
 
             messages = [self.messageDicts[i] for i in batchIds]

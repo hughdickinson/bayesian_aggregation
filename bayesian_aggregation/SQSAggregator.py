@@ -151,7 +151,7 @@ class SQSAggregator:
             )
             aggregator.get_big_bbox_set()
             aggregator.estimate_parameters(
-                avoid_if_finished=True, max_iters=10, refine=True
+                avoid_if_finished=True, max_iters=25, refine=True
             )
 
         if self.saveInputMessages:
