@@ -1,5 +1,5 @@
+import numpy as np
 import pandas as pd
-
 
 class SQSMessageParser:
 
@@ -138,6 +138,8 @@ class SQSMessageParser:
 
         if len(classificationData):
             classificationsFrame = pd.DataFrame(classificationData)
+            classificationsFrame.user_id.loc[~np.isfinite(classificationsFrame.user_id)] = -99
+            classificationsFrame = classificationsFrame.astype({'user_id': int})
         else:
             print("All messages already seen.")
             return None
