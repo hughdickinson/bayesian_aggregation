@@ -50,7 +50,7 @@ class SQSMessageParser:
         try:
             return metadata["subject_dimensions"][0]
         except IndexError as e:
-            print("IndexError parsing subject dimensions.", e)
+            # print("IndexError parsing subject dimensions.", e)
             return None
 
     def extractBoxWidths(self, subject):
@@ -86,7 +86,7 @@ class SQSMessageParser:
             return (imageDims["naturalWidth"], imageDims["naturalHeight"])
         except TypeError as e:
             print(e)
-            return (1, 1)
+            return (400, 400)   ### VM-edit; fixing the image dimensions
 
     def extractClassification(self, message):
         try:
@@ -121,16 +121,17 @@ class SQSMessageParser:
             )
         )
 
-        duplicateMessageIds = [
-            message["classification_id"]
-            for message in uniqueMessages
-            if message["classification_id"] in self.allClassificationIds
-        ]
-        print(
-            "Message Parser: Duplicate classification IDs: {}".format(
-                duplicateMessageIds
+        if self.allClassificationIds.intersection(set([message["classification_id"] for message in uniqueMessages])):
+            duplicateMessageIds = [
+                message["classification_id"]
+                for message in uniqueMessages
+                if message["classification_id"] in self.allClassificationIds
+            ]
+            print(
+                "Message Parser: Duplicate classification IDs: {}".format(
+                    duplicateMessageIds
+                )
             )
-        )
 
         self.allClassificationIds.update(
             [message["classification_id"] for message in uniqueMessages]
@@ -138,7 +139,7 @@ class SQSMessageParser:
 
         if len(classificationData):
             classificationsFrame = pd.DataFrame(classificationData)
-            classificationsFrame.user_id.loc[~np.isfinite(classificationsFrame.user_id)] = -99
+            classificationsFrame.loc[~np.isfinite(classificationsFrame.user_id), "user_id"] = -99
             classificationsFrame = classificationsFrame.astype({'user_id': int})
         else:
             print("All messages already seen.")

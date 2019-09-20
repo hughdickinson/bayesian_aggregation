@@ -5,6 +5,7 @@ import importlib
 import signal
 import sys
 import os
+import time
 import pickle
 
 if importlib.util.find_spec("crowdsourcing") is not None:
@@ -28,12 +29,14 @@ class SQSAggregator:
         postIterateCallback=None,
         offlineMode=False,
         offlineMessageDump=None,
+        saveIntermittently=True,
         **kwargs
     ):
 
         self.savePath = savePath
         self.savePrefix = savePrefix
 
+        self.saveIntermittently = saveIntermittently
         self.offlineMode = offlineMode
         self.offlineMessageDump = offlineMessageDump
 
@@ -73,7 +76,7 @@ class SQSAggregator:
                 )
                 self.fullSavePrefixes.append(
                     os.path.join(
-                        self.savePath, "{}_T{}".format(self.savePrefix, taskCounter)
+                        self.savePath, "{}_{}".format(self.savePrefix, taskLabel)
                     )
                 )
                 self.subAggregators[-1].fname = self.fullSavePrefixes[-1]
@@ -110,7 +113,7 @@ class SQSAggregator:
     def accumulateMessages(self):
         while len(self.allUniqueMessages) < self.messageBatchSize:
             uniqueMessages, allMessages, messageIds = self.sqsClient.getMessages(
-                self.deleteMessagesFromQueue
+                delete=self.deleteMessagesFromQueue
             )
             if not len(uniqueMessages):
                 print(
@@ -138,7 +141,7 @@ class SQSAggregator:
         for taskLabel, aggregator, sqsMessageParser in zip(
             self.taskLabels, self.subAggregators, self.sqsMessageParsers
         ):
-            if not sqsMessageParser.processMessages(self.allUniqueMessages):
+            if not sqsMessageParser.processMessages(uniqueMessages=self.allUniqueMessages):
                 return False
 
             if self.saveInputAnnotations:
@@ -189,9 +192,12 @@ class SQSAggregator:
             )
 
         if self.saveInputMessages:
-            inputMessageFileName = "{}_inputMessages.pkl".format(self.savePrefix)
-            with open(inputMessageFileName, mode="wb") as inputMessageFile:
-                pickle.dump(obj=self.inputMessages, file=inputMessageFile)
+            self.dumpInputMessages()
+
+    def dumpInputMessages(self):
+        inputMessageFileName = "{}_inputMessages.pkl".format(self.savePrefix)
+        with open(inputMessageFileName, mode="wb") as inputMessageFile:
+            pickle.dump(obj=self.inputMessages, file=inputMessageFile)
 
     def getInputAnnotations(self):
         return self.inputAnnotations
@@ -204,6 +210,7 @@ class SQSAggregator:
                     saveResponse = input("Save aggregation results? (y/n)")
                     if saveResponse == "y":
                         self.save()
+                        sys.exit(0)
                     elif saveResponse == "n":
                         sys.exit(0)
                     else:
@@ -233,8 +240,13 @@ class SQSAggregator:
                                 )
                             }
                         )
+                if self.saveIntermittently:
+                    self.save()
             elif not stopOnExhaustion:
                 print("No messages received. Waiting...")
+                if self.offlineMode:
+                    time.sleep(5)
+                    self.sqsClient.update()
                 continue
             elif retries < 3:
                 print(

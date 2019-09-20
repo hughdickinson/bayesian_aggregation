@@ -200,6 +200,18 @@ class BBoxResultsPlotter:
                     self.imageDir, "subject_{}.png".format(imageIndex)
                 )
 
+            ####
+            imagePath = imagePath.replace("cutouts","pngs")
+            imagePath = imagePath.replace("_1_Projected_Clumpless.png",".png")
+            imagePath = imagePath.replace("_1_Projected_Clumpy.png",".png")
+            imagePath = imagePath.replace("_2_Projected_Clumpy.png",".png")
+            imagePath = imagePath.replace("_3_Projected_Clumpy.png",".png")
+            imagePath = imagePath.replace("_4_Projected_Clumpy.png",".png")
+            imagePath = imagePath.replace("_5_Projected_Clumpy.png",".png")
+            imagePath = imagePath.replace("_6_Projected_Clumpy.png",".png")
+            imagePath = imagePath.replace("_7_Projected_Clumpy.png",".png")
+            ####
+
             imageData = mplplot.imread(imagePath)
             if invertColours:
                 imageData[..., :-1] = (
@@ -299,6 +311,8 @@ class BBoxResultsPlotter:
 
             unifiedPanel.set_xlim(0, self.imageDimensions[subjectId][0])
             unifiedPanel.set_ylim(0, self.imageDimensions[subjectId][0])
+            unifiedPanel.set_xticks([])
+            unifiedPanel.set_yticks([])
 
             handles, labels = unifiedPanel.get_legend_handles_labels()
             allHandles.extend(handles)

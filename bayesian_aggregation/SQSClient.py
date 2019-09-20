@@ -1,3 +1,4 @@
+import os
 import hashlib
 import boto3
 import json
@@ -102,24 +103,58 @@ class SQSOfflineClient:
 
         self.messagesFilename = filename
 
-        with open(self.messagesFilename,'rb') as pklfile:
-            self.messageDicts = pickle.load(pklfile)
-
-        self.messageIds = np.arange(len(self.messageDicts))
+        self.mTimes = {}
+        self.allMessages = []
         self.parsedCount = 0
+
+        self.loadMessages()
+
+    def loadMessages(self):
+
+        for filename in np.atleast_1d(self.messagesFilename):
+            with open(filename,'rb') as pklfile:
+                self.allMessages.extend(pickle.load(pklfile))
+            self.mTimes[filename] = os.stat(filename).st_mtime
+
+        self.messageIds = np.arange(len(self.allMessages))
+        print("SQSOfflineClient: Loaded {} messages ...".format(len(self.allMessages)))
+
+    def update(self):
+
+        update = []
+        for filename in np.atleast_1d(self.messagesFilename):
+            update.append(os.stat(filename).st_mtime > self.mTimes[filename])
+
+        if any(update):
+
+            allMessages = []
+            for filename in np.atleast_1d(self.messagesFilename):
+                with open(filename,'rb') as pklfile:
+                    allMessages.extend(pickle.load(pklfile))
+                self.mTimes[filename] = os.stat(filename).st_mtime
+
+            cond = np.in1d([_["classification_id"] for _ in allMessages],
+                           [_["classification_id"] for _ in self.allMessages])
+            cidx = np.where(~cond)[0]
+            print("SQSOfflineClient: Updated with {} new messages ...".format(len(cidx)))
+
+            self.allMessages.extend([allMessages[idx] for idx in cidx])
+            self.messageIds = np.arange(len(self.allMessages))
 
     def getMessages(self, batchSize=None, delete=None):
 
-        if self.parsedCount < len(self.messageDicts):
+        maxCount = len(self.allMessages)
+        if self.parsedCount < maxCount:
 
             if batchSize is None: batchSize = np.random.randint(40,60)
             batchIds = self.messageIds[self.parsedCount:self.parsedCount+batchSize]
 
-            messages = [self.messageDicts[i] for i in batchIds]
+            messages = [self.allMessages[i] for i in batchIds]
             receivedMessages = messages
             receivedMessageIds = [m["classification_id"] for m in messages]
 
             self.parsedCount += batchSize
+            print("***** Served {}/{} classifications *****".format(self.parsedCount,maxCount))
             return messages, receivedMessages, receivedMessageIds
 
         else:
