@@ -173,7 +173,7 @@ class SQSOfflineClient:
                     idx = np.where(metadata["id"] == self.trainingFWHM["id"].astype(str))[0][0]
                     metadata[self.sizeMetaDatumName] = self.trainingFWHM["fwhmImagePix"][idx]
                 else:
-                    print("No {} found in message or additional metadata for {}".format(self.sizeMetaDatumName,))
+                    print("No {} found in message or additional metadata for ID#{}".format(self.sizeMetaDatumName,metadata["id"]))
                     pass
 
         return messages
