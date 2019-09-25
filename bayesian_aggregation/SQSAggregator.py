@@ -30,18 +30,26 @@ class SQSAggregator:
         offlineMode=False,
         offlineMessageDump=None,
         saveIntermittently=True,
+        removeAnonUsers=False,
+        crowdsourcing_kwargs={},
         **kwargs
     ):
 
         self.savePath = savePath
         self.savePrefix = savePrefix
 
+        self.crowdsourcing_kwargs = crowdsourcing_kwargs
+
+        self.removeAnonUsers = removeAnonUsers
         self.saveIntermittently = saveIntermittently
         self.offlineMode = offlineMode
         self.offlineMessageDump = offlineMessageDump
 
         if self.offlineMode:
-            self.sqsClient = SQSOfflineClient(filename=self.offlineMessageDump)
+            self.sqsClient = SQSOfflineClient(filename=self.offlineMessageDump,
+                                              sizeMetaDatumName=kwargs.get("sizeMetaDatumName","#fwhmImagePix"),
+                                              trainingMessagesOnly=kwargs.get("trainingMessagesOnly",False),
+                                              removeAnonUsers=self.removeAnonUsers)
         else:
             self.sqsClient = SQSClient(queueUrl=queueUrl, **kwargs)
 
@@ -80,6 +88,12 @@ class SQSAggregator:
                     )
                 )
                 self.subAggregators[-1].fname = self.fullSavePrefixes[-1]
+
+                for k,v in self.crowdsourcing_kwargs.items():
+                    if hasattr(self.subAggregators[-1],k):
+                        self.subAggregators[-1].k = v
+                    else:
+                        print("Warning: No {} attribute found for CrowdDatasetBBox. Ignoring.".format(k))
 
         except TypeError as e:
             print(
@@ -222,6 +236,7 @@ class SQSAggregator:
 
     def loop(self, verbose=True, stopOnExhaustion=False):
         retries = 0
+        n_loop = 0
         while True:
             if self.aggregate():
                 if verbose:
@@ -240,12 +255,14 @@ class SQSAggregator:
                                 )
                             }
                         )
-                if self.saveIntermittently:
+                if self.saveIntermittently and not (n_loop%10):
                     self.save()
+                self.purgeBBoxSetFile()
+                n_loop += 1
             elif not stopOnExhaustion:
                 print("No messages received. Waiting...")
                 if self.offlineMode:
-                    time.sleep(5)
+                    time.sleep(60)
                     self.sqsClient.update()
                 continue
             elif retries < 3:

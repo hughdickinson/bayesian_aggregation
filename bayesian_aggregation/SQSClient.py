@@ -4,6 +4,7 @@ import boto3
 import json
 import pickle
 import numpy as np
+import astropy.io.fits as fitsio
 
 class UniqueMessage:
     def __init__(self, message):
@@ -99,13 +100,18 @@ class SQSOfflineClient:
     """
     Added by VM to facilitate parsing offline using downloaded datadump
     """
-    def __init__(self, filename, **kwargs):
+    def __init__(self, filename, sizeMetaDatumName="#fwhmImagePix", trainingMessagesOnly=False, removeAnonUsers=False, **kwargs):
 
         self.messagesFilename = filename
 
         self.mTimes = {}
         self.allMessages = []
         self.parsedCount = 0
+        self.removeAnonUsers = removeAnonUsers
+        self.trainingMessagesOnly = trainingMessagesOnly
+        self.sizeMetaDatumName = sizeMetaDatumName
+
+        self.trainingFWHM = fitsio.getdata("datastore/trainingFWHM.fits")
 
         self.loadMessages()
 
@@ -113,7 +119,12 @@ class SQSOfflineClient:
 
         for filename in np.atleast_1d(self.messagesFilename):
             with open(filename,'rb') as pklfile:
-                self.allMessages.extend(pickle.load(pklfile))
+                messages = pickle.load(pklfile)
+                if self.removeAnonUsers:
+                    messages = [x for x in messages if x["user_id"] is not None]
+                if self.trainingMessagesOnly:
+                    messages = [x for x in messages if x["data"]["classification"]["subject"]["metadata"]["origin"]=="training"]
+                self.allMessages.extend(messages)
             self.mTimes[filename] = os.stat(filename).st_mtime
 
         self.messageIds = np.arange(len(self.allMessages))
@@ -130,7 +141,12 @@ class SQSOfflineClient:
             allMessages = []
             for filename in np.atleast_1d(self.messagesFilename):
                 with open(filename,'rb') as pklfile:
-                    allMessages.extend(pickle.load(pklfile))
+                    messages = pickle.load(pklfile)
+                    if self.removeAnonUsers:
+                        messages = [x for x in messages if x["user_id"] is not None]
+                    if self.trainingMessagesOnly:
+                        messages = [x for x in messages if x["data"]["classification"]["subject"]["metadata"]["origin"]=="training"]
+                    allMessages.extend(messages)
                 self.mTimes[filename] = os.stat(filename).st_mtime
 
             cond = np.in1d([_["classification_id"] for _ in allMessages],
@@ -141,6 +157,20 @@ class SQSOfflineClient:
             self.allMessages.extend([allMessages[idx] for idx in cidx])
             self.messageIds = np.arange(len(self.allMessages))
 
+    def addTrainingFWHM(self, messages):
+
+        for message in messages:
+            metadata = message["data"]["classification"]["subject"]["metadata"]
+            if self.sizeMetaDatumName in metadata:
+                pass
+            elif metadata["id"] in self.trainingFWHM["id"].astype(str):
+                idx = np.where(metadata["id"] == self.trainingFWHM["id"].astype(str))[0][0]
+                metadata[self.sizeMetaDatumName] = self.trainingFWHM["fwhmImagePix"][idx]
+            else:
+                print("No {} found in message or additional metadata for {}".format(self.sizeMetaDatumName,))
+                pass
+        return messages
+
     def getMessages(self, batchSize=None, delete=None):
 
         maxCount = len(self.allMessages)
@@ -150,10 +180,13 @@ class SQSOfflineClient:
             batchIds = self.messageIds[self.parsedCount:self.parsedCount+batchSize]
 
             messages = [self.allMessages[i] for i in batchIds]
+            messages = self.addTrainingFWHM(messages)
+
             receivedMessages = messages
             receivedMessageIds = [m["classification_id"] for m in messages]
 
             self.parsedCount += batchSize
+
             print("***** Served {}/{} classifications *****".format(self.parsedCount,maxCount))
             return messages, receivedMessages, receivedMessageIds
 
