@@ -194,7 +194,7 @@ class SQSOfflineClient:
 
             self.parsedCount += batchSize
 
-            print("***** Served {}/{} classifications *****".format(self.parsedCount,maxCount))
+            print("SQSOfflineClient: served {}/{} classifications".format(self.parsedCount,maxCount))
             return messages, receivedMessages, receivedMessageIds
 
         else:
