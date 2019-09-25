@@ -111,7 +111,10 @@ class SQSOfflineClient:
         self.trainingMessagesOnly = trainingMessagesOnly
         self.sizeMetaDatumName = sizeMetaDatumName
 
-        self.trainingFWHM = fitsio.getdata("datastore/trainingFWHM.fits")
+        if os.path.isfile("datastore/trainingFWHM.fits"):
+            self.trainingFWHM = fitsio.getdata("datastore/trainingFWHM.fits")
+        else:
+            self.trainingFWHM = None
 
         self.loadMessages()
 
@@ -159,16 +162,20 @@ class SQSOfflineClient:
 
     def addTrainingFWHM(self, messages):
 
-        for message in messages:
-            metadata = message["data"]["classification"]["subject"]["metadata"]
-            if self.sizeMetaDatumName in metadata:
-                pass
-            elif metadata["id"] in self.trainingFWHM["id"].astype(str):
-                idx = np.where(metadata["id"] == self.trainingFWHM["id"].astype(str))[0][0]
-                metadata[self.sizeMetaDatumName] = self.trainingFWHM["fwhmImagePix"][idx]
-            else:
-                print("No {} found in message or additional metadata for {}".format(self.sizeMetaDatumName,))
-                pass
+        if self.trainingFWHM is not None:
+
+            for message in messages:
+
+                metadata = message["data"]["classification"]["subject"]["metadata"]
+                if self.sizeMetaDatumName in metadata:
+                    pass
+                elif metadata["id"] in self.trainingFWHM["id"].astype(str):
+                    idx = np.where(metadata["id"] == self.trainingFWHM["id"].astype(str))[0][0]
+                    metadata[self.sizeMetaDatumName] = self.trainingFWHM["fwhmImagePix"][idx]
+                else:
+                    print("No {} found in message or additional metadata for {}".format(self.sizeMetaDatumName,))
+                    pass
+
         return messages
 
     def getMessages(self, batchSize=None, delete=None):
