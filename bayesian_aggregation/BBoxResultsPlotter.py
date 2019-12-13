@@ -5,6 +5,8 @@ import matplotlib
 import matplotlib.pyplot as mplplot
 import pandas as pd
 import numpy as np
+import pickle
+import collections
 
 
 class BBoxResultsPlotter:
@@ -377,4 +379,427 @@ class BBoxResultsPlotter:
             riskAxes.set_xscale("log")
         riskAxes.legend()
         mplplot.tight_layout()
-        return riskAxes
+
+    @staticmethod
+    def plotUserData(aggregator, savePath=".", savePrefix=None):
+        workers = aggregator.workers
+
+        maxBatches = np.amax(
+            [len(worker.sigma_array) for worker in aggregator.workers.values()]
+        )
+
+        if len(workers) > 0:
+            figure, panels = mplplot.subplots(figsize=(50, 20), nrows=3, ncols=5)
+            numFigure, numPanels = mplplot.subplots(
+                figsize=(5, 10),
+                nrows=4,
+                ncols=2,
+                gridspec_kw=dict(width_ratios=[1, 0.2], height_ratios=[1, 0.2, 1, 0.2]),
+            )
+            numBoxPanel = mplplot.figure(figsize=(10, 10)).add_subplot(1, 1, 1)
+            numFpDicts = {}
+            numFnDicts = {}
+            allWorkerIds = []
+            allWorkerBBoxCounts = {}
+            for workerId, worker in workers.items():
+                if workerId not in allWorkerIds:
+                    allWorkerIds.append(int(workerId))
+
+                # workerImageIds, workerImages = worker.images.items()
+                for workerImageId, workerImage in worker.images.items():
+                    if workerImageId in allWorkerBBoxCounts:
+                        allWorkerBBoxCounts[workerImageId].append(
+                            len(workerImage.y.bboxes)
+                        )
+                    else:
+                        allWorkerBBoxCounts[workerImageId] = [len(workerImage.y.bboxes)]
+
+                numFpDicts[int(workerId)] = {}
+                numFnDicts[int(workerId)] = {}
+
+                numBatches = len(worker.sigma_array)
+
+                # Data for final iteration of all batches
+                try:
+                    finalBatchwiseSigmas = [
+                        batchArray[-1] for batchArray in worker.sigma_array
+                    ]
+
+                    finalBatchwiseFalsePosProbs = [
+                        batchArray[-1] for batchArray in worker.prob_fp_array
+                    ]
+                    finalBatchwiseFalseNegProbs = [
+                        batchArray[-1] for batchArray in worker.prob_fn_array
+                    ]
+
+                    finalBatchwiseNumFalsePos = [
+                        batchArray[-1] for batchArray in worker.num_fp_array
+                    ]
+                    finalBatchwiseNumFalseNeg = [
+                        batchArray[-1] for batchArray in worker.num_fn_array
+                    ]
+
+                    finalBatchwiseSigmaDeltas = [
+                        batchArray[-1] for batchArray in worker.dsigma_array
+                    ]
+                    finalBatchwiseFalsePosProbDeltas = [
+                        batchArray[-1] for batchArray in worker.dprob_fp_array
+                    ]
+                    finalBatchwiseFalseNegProbDeltas = [
+                        batchArray[-1] for batchArray in worker.dprob_fn_array
+                    ]
+
+                    finalBatchwiseImageIds = [
+                        batchArray[-1] for batchArray in worker.image_id_array
+                    ]
+                except IndexError as e:
+                    print(
+                        "plotUserData: Caught IndexError: {} ()".format(
+                            e, [len(batchArray) for batchArray in worker.sigma_array]
+                        )
+                    )
+                    continue
+
+                # Result of processing the final iteration with all batches considered
+                sigmas = finalBatchwiseSigmas[-1]
+                falsePosProbs = finalBatchwiseFalsePosProbs[-1]
+                falseNegProbs = finalBatchwiseFalseNegProbs[-1]
+
+                numFalsePos = finalBatchwiseNumFalsePos[-1]
+                numFalseNeg = finalBatchwiseNumFalseNeg[-1]
+
+                sigmaDeltas = finalBatchwiseSigmaDeltas[-1]
+                falsePosProbDeltas = finalBatchwiseFalsePosProbDeltas[-1]
+                falseNegProbDeltas = finalBatchwiseFalseNegProbDeltas[-1]
+
+                imageIds = finalBatchwiseImageIds[-1]
+
+                for imageId, nFalsePos, nFalseNeg in zip(
+                    imageIds, numFalsePos, numFalseNeg
+                ):
+                    if int(imageId) in numFpDicts[int(workerId)]:
+                        numFpDicts[int(workerId)][int(imageId)] += nFalsePos
+                    else:
+                        numFpDicts[int(workerId)][int(imageId)] = nFalsePos
+
+                    if int(imageId) in numFnDicts[int(workerId)]:
+                        numFnDicts[int(workerId)][int(imageId)] += nFalseNeg
+                    else:
+                        numFnDicts[int(workerId)][int(imageId)] = nFalseNeg
+
+                # Compute difference in metric induced by each batch
+                # Sum absolute and signed offsets for corresponding elements
+                # Note that not all workers will contribute to all batches.
+
+                # Workers will not have data until they first appear, but they
+                # will have empty data for any subsequent batches to which they
+                # do not contribute
+
+                batchSummedSignedDiffs = {
+                    name: [np.nan] * (maxBatches - numBatches)
+                    + [
+                        np.sum(
+                            np.array(data[current][-1])
+                            - np.array(data[current - 1][-1])
+                        )
+                        for current in range(1, len(data))
+                    ]
+                    for name, data in zip(
+                        ["sigma", "falsePosProb", "falseNegProb"],
+                        [
+                            finalBatchwiseSigmas,
+                            finalBatchwiseFalsePosProbs,
+                            finalBatchwiseFalseNegProbs,
+                        ],
+                    )
+                }
+                batchSummedAbsDiffs = {
+                    name: [np.nan] * (maxBatches - numBatches)
+                    + [
+                        np.sum(
+                            np.abs(
+                                np.array(data[current][-1])
+                                - np.array(data[current - 1][-1])
+                            )
+                        )
+                        for current in range(1, len(data))
+                    ]
+                    for name, data in zip(
+                        ["sigma", "falsePosProb", "falseNegProb"],
+                        [
+                            finalBatchwiseSigmas,
+                            finalBatchwiseFalsePosProbs,
+                            finalBatchwiseFalseNegProbs,
+                        ],
+                    )
+                }
+
+                ## False pos and false neg probabilities and evolution
+                for (
+                    panelSet,
+                    imageIdSet,
+                    dataset,
+                    deltaDataset,
+                    signedDiffDataset,
+                    absDiffDataset,
+                    title,
+                ) in zip(
+                    panels,
+                    [[imageIds]] * len(panels),
+                    [sigmas, falsePosProbs, falseNegProbs],
+                    [sigmaDeltas, falsePosProbDeltas, falseNegProbDeltas],
+                    [
+                        batchSummedSignedDiffs["sigma"],
+                        batchSummedSignedDiffs["falsePosProb"],
+                        batchSummedSignedDiffs["falseNegProb"],
+                    ],
+                    [
+                        batchSummedAbsDiffs["sigma"],
+                        batchSummedAbsDiffs["falsePosProb"],
+                        batchSummedAbsDiffs["falseNegProb"],
+                    ],
+                    ["sigma", "false pos prob", "false neg prob"],
+                ):
+                    panelSet[0].plot(
+                        range(len(dataset)),
+                        dataset,
+                        ls=":" if worker.suppressed else "-",
+                    )
+                    panelSet[0].set_ylabel(title, fontsize="x-large")
+                    panelSet[0].set_xlabel("Subject count", fontsize="x-large")
+                    panelSet[1].set_yscale("log")
+                    panelSet[1].set_xscale("log")
+                    panelSet[1].plot(
+                        range(len(dataset)),
+                        dataset,
+                        ls=":" if worker.suppressed else "-" if not len(worker.suppressed_images) else ".-",
+                    )
+                    panelSet[1].set_ylabel(title, fontsize="x-large")
+                    panelSet[1].set_xlabel("Subject count", fontsize="x-large")
+                    panelSet[2].set_ylabel(
+                        "$\Delta$ {}".format(title), fontsize="x-large"
+                    )
+                    panelSet[2].set_xlabel("Subject ID", fontsize="x-large")
+                    panelSet[2].scatter(
+                        x=imageIdSet,
+                        y=deltaDataset,
+                        marker="+" if worker.suppressed else "o" if not len(worker.suppressed_images) else "*",
+                    )
+                    # panelSet[2].set_yscale("log")
+                    # # print(workerId, len(signedDiffDataset), len(absDiffDataset))
+                    panelSet[3].plot(
+                        range(len(signedDiffDataset)),
+                        signedDiffDataset,
+                        ls=":" if worker.suppressed else "-" if not len(worker.suppressed_images) else ".-",
+                    )
+                    panelSet[3].set_title(title, fontsize="x-large")
+                    panelSet[3].set_xlabel("Batch count", fontsize="x-large")
+                    panelSet[3].set_ylabel(
+                        "Inter-batch signed difference sum", fontsize="x-large"
+                    )
+                    panelSet[4].plot(
+                        range(len(absDiffDataset)),
+                        absDiffDataset,
+                        ls=":" if worker.suppressed else "-",
+                    )
+                    panelSet[4].set_title(title, fontsize="x-large")
+                    panelSet[4].set_xlabel("Batch count", fontsize="x-large")
+                    panelSet[4].set_ylabel(
+                        "Inter-batch absolute difference sum", fontsize="x-large"
+                    )
+
+            mplplot.figure(figure.number)
+            mplplot.tight_layout()
+            if savePrefix is None:
+                savePrefix = "userSkill"
+            mplplot.savefig(
+                os.path.join(savePath, savePrefix + "_probs.png"), bbox_inches="tight"
+            )
+
+            allImageIds = np.sort(
+                np.array(
+                    list(
+                        set(
+                            [
+                                imageId
+                                for workerNumFps in numFpDicts.values()
+                                for imageId in workerNumFps.keys()
+                            ]
+                        )
+                    )
+                )
+            )
+
+            # allWorkerIds = np.array(list(numFpDicts.keys()))
+
+            # fpCounts = np.asarray(
+            #     [
+            #         [
+            #             numFpDicts[workerId][imageId]
+            #             if imageId in numFpDicts[workerId]
+            #             else np.nan
+            #             for imageId in allImageIds
+            #         ]
+            #         for workerId in allWorkerIds
+            #     ]
+            # )
+
+            fpCountsScatter = np.asarray(
+                [
+                    [workerId, imageId, numFpDicts[workerId][imageId]]
+                    if imageId in numFpDicts[workerId]
+                    else [workerId, imageId, np.nan]
+                    for workerId in allWorkerIds
+                    for imageId in allImageIds
+                ]
+            )
+
+            # fnCounts = np.asarray(
+            #     [
+            #         [
+            #             numFnDicts[workerId][imageId]
+            #             if imageId in numFnDicts[workerId]
+            #             else np.nan
+            #             for imageId in allImageIds
+            #         ]
+            #         for workerId in allWorkerIds
+            #     ]
+            # )
+
+            fnCountsScatter = np.asarray(
+                [
+                    [workerId, imageId, numFnDicts[workerId][imageId]]
+                    if imageId in numFpDicts[workerId]
+                    else [workerId, imageId, np.nan]
+                    for workerId in allWorkerIds
+                    for imageId in allImageIds
+                ]
+            )
+
+            # False pos and false neg number counts
+            for (panelSet, dataset, title) in zip(
+                zip(numPanels[::2], numPanels[1::2]),
+                # [fpCounts, fnCounts],
+                [fpCountsScatter, fnCountsScatter],
+                ["Num FP", "Num FN"],
+            ):
+
+                panelSet[0][0].scatter(
+                    x=dataset[:, 1], y=dataset[:, 0], s=dataset[:, 2], alpha=0.5
+                )
+                panelSet[0][0].set_ylabel("Worker ID")
+                panelSet[0][0].set_title(title)
+
+                workerSums = [
+                    np.nansum(dataset.T[2][dataset.T[0] == workerId])
+                    for workerId in allWorkerIds
+                ]
+                imageSums = [
+                    np.nansum(dataset.T[2][dataset.T[1] == imageId])
+                    for imageId in allImageIds
+                ]
+
+                panelSet[0][1].step(workerSums, range(len(workerSums)), where="pre")
+                panelSet[0][1].invert_yaxis()
+                panelSet[1][0].step(range(len(imageSums)), imageSums, where="pre")
+                panelSet[1][0].set_xlabel("Image ID")
+                panelSet[1][1].axis("off")
+
+            mplplot.figure(numFigure.number)
+            mplplot.tight_layout()
+            if savePrefix is None:
+                savePrefix = "userSkill"
+            mplplot.savefig(
+                os.path.join(savePath, savePrefix + "_counts.png"), bbox_inches="tight"
+            )
+
+            numBoxPanel.scatter(
+                range(len(allWorkerBBoxCounts.keys())),
+                [np.mean(bboxCounts) for bboxCounts in allWorkerBBoxCounts.values()],
+            )
+            numBoxPanel.set_xlabel("Image ID")
+            numBoxPanel.set_xlabel("Mean Aggregated Box Count")
+            mplplot.figure(numBoxPanel.figure.number)
+            mplplot.tight_layout()
+            if savePrefix is None:
+                savePrefix = "userSkill"
+            mplplot.savefig(
+                os.path.join(savePath, savePrefix + "_boxcounts.png"),
+                bbox_inches="tight",
+            )
+
+    @staticmethod
+    def exploreUserSkillsForBatch(
+        batchPicklePath, metadataPicklePath, savePath=".", savePrefix=None
+    ):
+        with open(metadataPicklePath, mode="rb") as mdPickle:
+            subjectMetaData = pickle.load(mdPickle)
+
+        # print(*subjectMetaData.columns, sep="\n")
+
+        with open(batchPicklePath, mode="rb") as batchPickle:
+            batchWorkerData = pickle.load(batchPickle)
+        highFpDeltaWorkers = []
+        highFpDeltaImages = []
+        highFpDeltaValues = []
+        for workerId, worker in batchWorkerData.items():
+            # Data for final iteration of all batches for this worker
+            finalBatchwiseSigmas = [batchArray[-1] for batchArray in worker.sigma_array]
+            finalBatchwiseFalsePosProbs = [
+                batchArray[-1] for batchArray in worker.prob_fp_array
+            ]
+            finalBatchwiseFalseNegProbs = [
+                batchArray[-1] for batchArray in worker.prob_fn_array
+            ]
+
+            finalBatchwiseSigmaDeltas = [
+                batchArray[-1] for batchArray in worker.dsigma_array
+            ]
+            finalBatchwiseFalsePosProbDeltas = [
+                batchArray[-1] for batchArray in worker.dprob_fp_array
+            ]
+            finalBatchwiseFalseNegProbDeltas = [
+                batchArray[-1] for batchArray in worker.dprob_fn_array
+            ]
+
+            finalBatchwiseImageIds = [
+                batchArray[-1] for batchArray in worker.image_id_array
+            ]
+
+            # Get the FP prob sort order for the final batch
+            lastBatchSortOrder = np.argsort(finalBatchwiseFalsePosProbDeltas[-1])
+
+            highFpDeltaWorkers.append(workerId)
+            highFpDeltaValues.append(
+                np.array(finalBatchwiseFalsePosProbDeltas[-1])[lastBatchSortOrder][-1]
+            )
+            highFpDeltaImages.append(
+                np.array(finalBatchwiseImageIds[-1])[lastBatchSortOrder][-1]
+            )
+
+        # print(
+        #     list(
+        #         sorted(
+        #             zip(highFpDeltaWorkers, highFpDeltaImages), key=lambda data: data[1]
+        #         )
+        #     )[-10:]
+        # )
+        #
+        # print(np.array(highFpDeltaImages)[np.argsort(highFpDeltaValues)][-10:])
+        # print(
+        #     np.array(highFpDeltaImages)[np.array(highFpDeltaValues) > 0.1]
+        #     .astype(int)
+        #     .tolist()
+        # )
+        # print(
+        #     list(
+        #         zip(
+        #             np.array(highFpDeltaImages)[
+        #                 np.array(highFpDeltaValues) > 0.1
+        #             ].astype(int),
+        #             np.array(highFpDeltaWorkers)[
+        #                 np.array(highFpDeltaValues) > 0.1
+        #             ].astype(int),
+        #         )
+        #     )
+        # )

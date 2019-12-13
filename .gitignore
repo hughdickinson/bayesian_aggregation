@@ -126,3 +126,4 @@ dmypy.json
 examples/
 datastore/
 .DS_Store
+mk_plots.py

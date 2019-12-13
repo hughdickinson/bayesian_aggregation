@@ -1,5 +1,6 @@
 from .SQSClient import SQSClient, SQSOfflineClient
 from .SQSMessageParser import SQSMessageParser
+from .BBoxResultsPlotter import BBoxResultsPlotter
 
 import importlib
 import signal
@@ -46,10 +47,12 @@ class SQSAggregator:
         self.offlineMessageDump = offlineMessageDump
 
         if self.offlineMode:
-            self.sqsClient = SQSOfflineClient(filename=self.offlineMessageDump,
-                                              sizeMetaDatumName=kwargs.get("sizeMetaDatumName","#fwhmImagePix"),
-                                              trainingMessagesOnly=kwargs.get("trainingMessagesOnly",False),
-                                              removeAnonUsers=self.removeAnonUsers)
+            self.sqsClient = SQSOfflineClient(
+                filename=self.offlineMessageDump,
+                sizeMetaDatumName=kwargs.get("sizeMetaDatumName", "#fwhmImagePix"),
+                trainingMessagesOnly=kwargs.get("trainingMessagesOnly", False),
+                removeAnonUsers=self.removeAnonUsers,
+            )
         else:
             self.sqsClient = SQSClient(queueUrl=queueUrl, **kwargs)
 
@@ -76,7 +79,7 @@ class SQSAggregator:
                         debug=0,
                         learn_worker_params=True,
                         learn_image_params=True,
-                        estimate_priors_automatically=True,
+                        estimate_priors_automatically=False,
                         computer_vision_predictor=None,
                         naive_computer_vision=False,
                         min_risk=self.maxRisk,
@@ -89,15 +92,19 @@ class SQSAggregator:
                 )
                 self.subAggregators[-1].fname = self.fullSavePrefixes[-1]
 
-                for k,v in self.crowdsourcing_kwargs.items():
-                    if hasattr(self.subAggregators[-1],k):
-                        self.subAggregators[-1].k = v
+                for k, v in self.crowdsourcing_kwargs.items():
+                    if hasattr(self.subAggregators[-1], k):
+                        setattr(self.subAggregators[-1], k, v)
                     else:
-                        print("Warning: No {} attribute found for CrowdDatasetBBox. Ignoring.".format(k))
-
+                        print(
+                            "Warning: No {} attribute found for CrowdDatasetBBox. Ignoring.".format(
+                                k
+                            )
+                        )
         except TypeError as e:
             print(
-                "The 'taskLabels' argument must be an iterable containing task label strings e.g. ['T0', 'T1']"
+                "TypeError raised while initialising sub-aggregators.",
+                e,
             )
             raise
 
@@ -155,7 +162,9 @@ class SQSAggregator:
         for taskLabel, aggregator, sqsMessageParser in zip(
             self.taskLabels, self.subAggregators, self.sqsMessageParsers
         ):
-            if not sqsMessageParser.processMessages(uniqueMessages=self.allUniqueMessages):
+            if not sqsMessageParser.processMessages(
+                uniqueMessages=self.allUniqueMessages
+            ):
                 return False
 
             if self.saveInputAnnotations:
@@ -163,13 +172,26 @@ class SQSAggregator:
                     sqsMessageParser.aggregatorInputData["annos"]
                 )
 
+            aggInput = sqsMessageParser.getAggregatorInputData()
+            print(
+                "Agg input for batch: Num annos = {}, Num images = {}".format(
+                    len(aggInput["annos"]), len(aggInput["images"])
+                ),
+                flush=True,
+            )
             aggregator.load(
-                data=sqsMessageParser.getAggregatorInputData(), overwrite_workers=False
+                data=aggInput,
+                overwrite_workers=False,
+                load_workers=False,
+                load_images=False,
+                load_dataset=False,
+                clear_previous_image_annos=False,
             )
             aggregator.get_big_bbox_set()
             aggregator.estimate_parameters(
-                avoid_if_finished=True, max_iters=25, refine=True
+                avoid_if_finished=False, max_iters=25, refine=True
             )
+            sqsMessageParser.clearProcessedClassifications()
 
         if self.saveInputMessages:
             self.inputMessages.extend(self.allUniqueMessages)
@@ -234,11 +256,28 @@ class SQSAggregator:
             else:
                 print("Unrecognized response.")
 
-    def loop(self, verbose=True, stopOnExhaustion=False):
+    def loop(
+        self,
+        verbose=True,
+        stopOnExhaustion=False,
+        plotInterrimResults=False,
+        interrimPlotDir=None,
+    ):
         retries = 0
         n_loop = 0
         while True:
             if self.aggregate():
+                if plotInterrimResults:
+                    for taskLabel, aggregator in zip(
+                        self.taskLabels, self.subAggregators
+                    ):
+                        BBoxResultsPlotter.plotUserData(
+                            aggregator,
+                            interrimPlotDir,
+                            "userSkills_{}_{}".format(taskLabel, n_loop),
+                        )
+                        # with open(os.path.join(self.savePath, "userSkillData", "userSkills_{}_{}.pkl".format(taskLabel, n_loop)), mode="wb") as skillFile:
+                        #     pickle.dump(obj=aggregator.workers, file=skillFile)
                 if verbose:
                     self.checkNumFinished()
                     if self.postIterateCallback is not None:
@@ -255,7 +294,7 @@ class SQSAggregator:
                                 )
                             }
                         )
-                if self.saveIntermittently and not (n_loop%10):
+                if self.saveIntermittently and not (n_loop % 10):
                     self.save()
                 self.purgeBBoxSetFile()
                 n_loop += 1
