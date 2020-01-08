@@ -102,10 +102,7 @@ class SQSAggregator:
                             )
                         )
         except TypeError as e:
-            print(
-                "TypeError raised while initialising sub-aggregators.",
-                e,
-            )
+            print("TypeError raised while initialising sub-aggregators.", e)
             raise
 
         self.allUniqueMessages = []
@@ -118,6 +115,9 @@ class SQSAggregator:
         self.deleteMessagesFromQueue = kwargs.get("deleteMessagesFromQueue", True)
 
         self.verbose = kwargs.get("verbose", False)
+        self.falseNegLossWeight = kwargs.get("falseNegLossWeight", 1)
+        self.falsePosLossWeight = kwargs.get("falsePosLossWeight", 1)
+        self.lossBoxOverlapThreshold = kwargs.get("falsePosLossWeight", None)
 
         # Register interrupt handler.
         signal.signal(signal.SIGINT, self.stopLoopHandler)
@@ -201,7 +201,10 @@ class SQSAggregator:
     def checkNumFinished(self):
         for taskLabel, aggregator in zip(self.taskLabels, self.subAggregators):
             image_id_to_finished = aggregator.check_finished_annotations(
-                set_finished=True
+                set_finished=True,
+                thresh=self.lossBoxOverlapThreshold,
+                loss_fn=self.falseNegLossWeight,
+                loss_fp=self.falsePosLossWeight,
             )
             num_finished = sum(image_id_to_finished.values())
             if len(image_id_to_finished) > 0:
