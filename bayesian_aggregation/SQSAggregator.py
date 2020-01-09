@@ -118,6 +118,7 @@ class SQSAggregator:
         self.falseNegLossWeight = kwargs.get("falseNegLossWeight", 1)
         self.falsePosLossWeight = kwargs.get("falsePosLossWeight", 1)
         self.lossBoxOverlapThreshold = kwargs.get("falsePosLossWeight", None)
+        self.maxLoops = kwargs.get("maxLoops", None)
 
         # Register interrupt handler.
         signal.signal(signal.SIGINT, self.stopLoopHandler)
@@ -268,7 +269,7 @@ class SQSAggregator:
     ):
         retries = 0
         n_loop = 0
-        while True:
+        while True or (self.maxLoops is not None and n_loop < self.maxLoops):
             if self.aggregate():
                 if plotInterrimResults:
                     for taskLabel, aggregator in zip(
