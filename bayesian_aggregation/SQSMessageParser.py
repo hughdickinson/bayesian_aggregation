@@ -11,7 +11,7 @@ class SQSMessageParser:
     def __init__(self, **kwargs):
 
         self.markScaleFactor = kwargs.get("markScaleFactor", 1.0)
-        print("SQSMessageParser.markScaleFactor", self.markScaleFactor)
+        # print("SQSMessageParser.markScaleFactor", self.markScaleFactor)
         self.setMarkDimensions(**kwargs)
 
         self.filterSubjectList = kwargs.get("filterSubjectList", [])
@@ -168,12 +168,12 @@ class SQSMessageParser:
                 classificationsFrame.id.size - classificationsFrame.id.unique().size,
             )
         )
-        print("[", ", ".join(classificationsFrame.columns), end="]\n")
+        # print("[", ", ".join(classificationsFrame.columns), end="]\n")
 
         return classificationsFrame.drop_duplicates(subset="id")
 
     def processClassifications(self, classificationsFrame):
-        print("Unique subject count", classificationsFrame.subject_id.unique().size)
+        # print("Unique subject count", classificationsFrame.subject_id.unique().size)
         classificationsFrame["annotation_counts"] = classificationsFrame.loc[
             :, "annotations"
         ].apply(len)
@@ -296,32 +296,32 @@ class SQSMessageParser:
         # in a batch, suspect that they are spammers.
         # 2) Check how many marks per subject - if average > 10 strongly
         # suspect spammers!
-        if self.taskLabel == "T1":
-            userGroupedCF = self.processedClassifications.groupby(by="user_id")
-            userClassificationCounts = userGroupedCF.count()
-            userMeanMarkCounts = userGroupedCF.mean().num_markings
-            userMeanFilteredMarkCounts = userGroupedCF.mean().num_filtered_markings
-            userMedianMarkCounts = userGroupedCF.median().num_markings
-            print(
-                "USER COUNTS:",
-                pd.concat(
-                    [
-                        userClassificationCounts.id,
-                        userMeanMarkCounts,
-                        userMeanFilteredMarkCounts,
-                        userMedianMarkCounts,
-                        userClassificationCounts.id
-                        > 0.15 * len(self.processedClassifications.index),
-                        userMeanMarkCounts > 3,
-                        (
-                            userClassificationCounts.id
-                            > 0.15 * len(self.processedClassifications.index)
-                        )
-                        & (userMeanMarkCounts > 3),
-                    ],
-                    axis=1,
-                ),
-            )
+        # if self.taskLabel == "T1":
+        #     userGroupedCF = self.processedClassifications.groupby(by="user_id")
+        #     userClassificationCounts = userGroupedCF.count()
+        #     userMeanMarkCounts = userGroupedCF.mean().num_markings
+        #     userMeanFilteredMarkCounts = userGroupedCF.mean().num_filtered_markings
+        #     userMedianMarkCounts = userGroupedCF.median().num_markings
+        #     print(
+        #         "USER COUNTS:",
+        #         pd.concat(
+        #             [
+        #                 userClassificationCounts.id,
+        #                 userMeanMarkCounts,
+        #                 userMeanFilteredMarkCounts,
+        #                 userMedianMarkCounts,
+        #                 userClassificationCounts.id
+        #                 > 0.15 * len(self.processedClassifications.index),
+        #                 userMeanMarkCounts > 3,
+        #                 (
+        #                     userClassificationCounts.id
+        #                     > 0.15 * len(self.processedClassifications.index)
+        #                 )
+        #                 & (userMeanMarkCounts > 3),
+        #             ],
+        #             axis=1,
+        #         ),
+        #     )
 
     def genAggregatorInput(self):
         dataset = dict()
