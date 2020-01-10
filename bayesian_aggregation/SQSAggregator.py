@@ -269,7 +269,12 @@ class SQSAggregator:
     ):
         retries = 0
         n_loop = 0
-        while True or (self.maxLoops is not None and n_loop < self.maxLoops):
+        while self.maxLoops is None or  n_loop < self.maxLoops:
+            if self.maxLoops is None:
+                print(f"Processing batch {n_loop}...")
+            else:
+                print(f"Processing batch {n_loop} of {self.maxLoops}...")
+            
             if self.aggregate():
                 if plotInterrimResults:
                     for taskLabel, aggregator in zip(
