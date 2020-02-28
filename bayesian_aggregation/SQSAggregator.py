@@ -189,8 +189,9 @@ class SQSAggregator:
                 clear_previous_image_annos=False,
             )
             aggregator.get_big_bbox_set()
+            print("NOTE: Ignoring data from finished subjects")
             aggregator.estimate_parameters(
-                avoid_if_finished=False, max_iters=25, refine=True
+                avoid_if_finished=True, max_iters=25, refine=True
             )
             sqsMessageParser.clearProcessedClassifications()
 
